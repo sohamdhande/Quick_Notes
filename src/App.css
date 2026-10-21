@@ -1,0 +1,523 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600&display=swap");
+
+:root {
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #262820;
+  background: #faf9f6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  font-size: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+  min-height: 100vh;
+  display: block;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  min-height: 500px;
+}
+
+.app {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #faf9f6;
+}
+
+/* Sidebar */
+
+.sidebar {
+  width: 300px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 18px 14px;
+  background: #f2f0e9;
+  border-right: 1px solid #e6e3da;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 5px;
+  margin-bottom: 30px;
+}
+
+.brand-icon,
+.welcome-icon {
+  display: grid;
+  place-items: center;
+  background: #394438;
+  color: #f9f8f1;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 22px;
+  border-radius: 11px;
+}
+
+.brand-icon {
+  width: 43px;
+  height: 43px;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+.brand p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #858478;
+}
+
+.new-note-button {
+  height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #394438;
+  color: #fffef8;
+  font-weight: 500;
+  text-align: left;
+  transition: background 150ms ease;
+}
+
+.new-note-button:hover,
+.welcome-button:hover {
+  background: #4d5c4b;
+}
+
+.new-note-button > span:first-child {
+  font-size: 21px;
+}
+
+.shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  color: #c1c7b9;
+}
+
+.section-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 27px 7px 12px;
+  color: #8b897e;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+}
+
+.section-label span:last-child {
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  height: 38px;
+  border: 1px solid #e2dfd5;
+  border-radius: 8px;
+  background: #faf9f6;
+  color: #949184;
+}
+
+.search-box > span {
+  font-size: 21px;
+}
+
+.search-box input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #35372f;
+  font-size: 11px;
+}
+
+.search-box input::placeholder {
+  color: #a5a296;
+}
+
+.clear-search {
+  border: 0;
+  padding: 0 3px;
+  background: transparent;
+  color: #89877d;
+  font-size: 18px;
+}
+
+.notes-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 13px;
+}
+
+.note-card {
+  display: block;
+  width: 100%;
+  margin-bottom: 5px;
+  padding: 13px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  text-align: left;
+  color: #32332c;
+}
+
+.note-card:hover {
+  background: #eae8df;
+}
+
+.note-card.selected {
+  border-color: #e0dfd3;
+  background: #e7e8dd;
+}
+
+.note-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.note-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  background: #7d9276;
+  border-radius: 50%;
+}
+
+.note-date {
+  color: #8c8a7e;
+  font-size: 10px;
+}
+
+.note-card-title {
+  overflow: hidden;
+  margin: 9px 0 5px;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-card-preview {
+  overflow: hidden;
+  color: #8b897e;
+  font-size: 11px;
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-empty {
+  padding: 35px 8px;
+  text-align: center;
+  color: #8b897e;
+}
+
+.list-empty > span {
+  font-size: 24px;
+}
+
+.list-empty p {
+  margin: 10px 0 5px;
+  color: #515248;
+  font-size: 12px;
+}
+
+.list-empty small {
+  font-size: 10px;
+}
+
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 6px 5px;
+  border-top: 1px solid #e1ded4;
+  color: #8d8b80;
+  font-size: 10px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  display: inline-block;
+  background: #75936f;
+  border-radius: 50%;
+}
+
+/* Editor */
+
+.editor {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-toolbar {
+  height: 65px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 0 34px;
+  border-bottom: 1px solid #ebe8e0;
+}
+
+.breadcrumb {
+  overflow: hidden;
+  color: #858477;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadcrumb span {
+  margin: 0 7px;
+  color: #c0bdb0;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.save-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #89877c;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.delete-button {
+  padding: 7px 10px;
+  border: 1px solid #e7e3da;
+  border-radius: 6px;
+  background: transparent;
+  color: #777568;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.delete-button:hover {
+  border-color: #e4c1b5;
+  background: #fbefeb;
+  color: #ac503b;
+}
+
+.delete-button span {
+  margin-left: 5px;
+}
+
+.editor-content {
+  width: min(100%, 820px);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 auto;
+  padding: 64px 70px 22px;
+}
+
+.editor-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #999688;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.document-icon {
+  color: #74816a;
+  font-size: 16px;
+}
+
+.meta-divider {
+  color: #c8c4b9;
+}
+
+.title-input {
+  width: 100%;
+  margin-top: 30px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #292b24;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: clamp(32px, 4vw, 43px);
+  font-weight: 500;
+  letter-spacing: -1.1px;
+}
+
+.title-input::placeholder {
+  color: #cfcdc3;
+}
+
+.content-hint {
+  margin-top: 12px;
+  color: #a09e91;
+  font-size: 12px;
+}
+
+.note-textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 120px;
+  margin-top: 38px;
+  padding: 0;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #515248;
+  font-size: 13px;
+  line-height: 2;
+}
+
+.note-textarea::placeholder {
+  color: #b3b0a5;
+}
+
+.editor-bottom {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 15px;
+  border-top: 1px solid #ebe8e0;
+  color: #a09d92;
+  font-size: 9px;
+}
+
+.editor-bottom span:last-child {
+  letter-spacing: 1.3px;
+}
+
+/* Empty editor */
+
+.welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 35px;
+  text-align: center;
+}
+
+.welcome-icon {
+  width: 60px;
+  height: 60px;
+  margin-bottom: 28px;
+  border-radius: 17px;
+  font-size: 30px;
+}
+
+.eyebrow {
+  margin: 0 0 17px;
+  color: #818b77;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.welcome h2 {
+  margin: 0;
+  color: #34362d;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: clamp(34px, 4vw, 48px);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -1px;
+}
+
+.welcome-description {
+  max-width: 310px;
+  margin: 20px 0 24px;
+  color: #8d8b80;
+  font-size: 12px;
+  line-height: 1.9;
+}
+
+.welcome-button {
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 7px;
+  background: #394438;
+  color: white;
+  font-size: 12px;
+  transition: background 150ms ease;
+}
+
+.welcome-shortcut {
+  margin-top: 32px;
+  color: #aaa79b;
+  font-size: 10px;
+}
+
+/* Smaller windows */
+
+@media (max-width: 800px) {
+  .sidebar {
+    width: 245px;
+    min-width: 210px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .editor-toolbar {
+    padding: 0 18px;
+  }
+
+  .editor-content {
+    padding: 45px 25px 20px;
+  }
+
+  .toolbar-actions {
+    gap: 10px;
+  }
+}
