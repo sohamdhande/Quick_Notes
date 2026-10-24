@@ -1,22 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import "./App.css";
 
 const STORAGE_KEY = "quick-notes";
+const MIGRATED_KEY = "quick-notes-migrated";
 
-function loadNotes() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
-  } catch {
-    return [];
-  }
-}
-
-function createNote() {
+function createEmptyNote() {
   return {
     id: crypto.randomUUID(),
     title: "",
     content: "",
+    createdAt: Date.now(),
     updatedAt: Date.now(),
   };
 }
@@ -41,13 +34,197 @@ function formatDate(timestamp) {
 }
 
 export default function App() {
-  const [notes, setNotes] = useState(loadNotes);
+  const [notes, setNotes] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [search, setSearch] = useState("");
+  const [theme, setTheme] = useState("light");
+  const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState("saved"); // 'saved' | 'saving' | 'error'
+  const [errorMessage, setErrorMessage] = useState(null);
+
+  const searchInputRef = useRef(null);
+  const pendingUpdateRef = useRef(null);
+  const debounceTimerRef = useRef(null);
+  const notesRef = useRef(notes);
+  const activeIdRef = useRef(activeId);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+    notesRef.current = notes;
   }, [notes]);
+
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+
+  // Persist pending note changes to main process
+  const flushPendingSave = useCallback(async () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    const pending = pendingUpdateRef.current;
+    if (!pending) return;
+
+    pendingUpdateRef.current = null;
+    setSaveStatus("saving");
+
+    try {
+      if (window.quickNotesAPI) {
+        await window.quickNotesAPI.updateNote(pending.id, {
+          title: pending.title,
+          content: pending.content,
+        });
+      } else {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(notesRef.current));
+      }
+      setSaveStatus("saved");
+    } catch (err) {
+      console.error("Failed to save note:", err);
+      setSaveStatus("error");
+      setErrorMessage("Could not save changes to disk. Please check file permissions.");
+    }
+  }, []);
+
+  // Initial load, theme sync, and localStorage migration
+  useEffect(() => {
+    let isMounted = true;
+
+    async function init() {
+      try {
+        let loadedTheme = "light";
+        if (window.quickNotesAPI) {
+          loadedTheme = await window.quickNotesAPI.getTheme();
+        } else {
+          loadedTheme = localStorage.getItem("quick-notes-theme") || "light";
+        }
+        if (isMounted) {
+          setTheme(loadedTheme);
+          document.documentElement.setAttribute("data-theme", loadedTheme);
+        }
+
+        let loadedNotes = [];
+        if (window.quickNotesAPI) {
+          // Check for Phase 1 legacy localStorage migration
+          const legacyRaw = localStorage.getItem(STORAGE_KEY);
+          const alreadyMigrated = localStorage.getItem(MIGRATED_KEY);
+
+          if (legacyRaw && !alreadyMigrated) {
+            try {
+              const legacyNotes = JSON.parse(legacyRaw);
+              if (Array.isArray(legacyNotes) && legacyNotes.length > 0) {
+                await window.quickNotesAPI.migrateNotes(legacyNotes);
+                localStorage.setItem(MIGRATED_KEY, "true");
+              }
+            } catch (err) {
+              console.warn("Legacy localStorage migration failed to parse:", err);
+            }
+          }
+
+          loadedNotes = await window.quickNotesAPI.getNotes();
+        } else {
+          // Fallback for standalone browser testing
+          const saved = localStorage.getItem(STORAGE_KEY);
+          loadedNotes = saved ? JSON.parse(saved) : [];
+        }
+
+        if (isMounted) {
+          setNotes(loadedNotes);
+          if (loadedNotes.length > 0) {
+            setActiveId(loadedNotes[0].id);
+          }
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error("Initialization error:", err);
+        if (isMounted) {
+          setErrorMessage("Failed to load notes from main process storage.");
+          setLoading(false);
+        }
+      }
+    }
+
+    init();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleAddNote = useCallback(async () => {
+    await flushPendingSave();
+
+    const newNoteData = createEmptyNote();
+    try {
+      let createdNote;
+      if (window.quickNotesAPI) {
+        createdNote = await window.quickNotesAPI.createNote(newNoteData);
+      } else {
+        createdNote = newNoteData;
+        const updated = [createdNote, ...notesRef.current];
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      }
+
+      setNotes((current) => [createdNote, ...current.filter((n) => n.id !== createdNote.id)]);
+      setActiveId(createdNote.id);
+      setSearch("");
+      setSaveStatus("saved");
+    } catch (err) {
+      console.error("Failed to create note:", err);
+      setErrorMessage("Could not create a new note.");
+    }
+  }, [flushPendingSave]);
+
+  // Listen for native menu shortcuts and external note updates
+  useEffect(() => {
+    if (!window.quickNotesAPI) return;
+
+    const cleanupMenu = window.quickNotesAPI.onMenuAction((action) => {
+      if (action === "new-note") {
+        handleAddNote();
+      } else if (action === "save-note") {
+        flushPendingSave();
+      } else if (action === "focus-search") {
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          searchInputRef.current.select();
+        }
+      }
+    });
+
+    const cleanupNotes = window.quickNotesAPI.onNotesUpdated((updatedNotes) => {
+      setNotes(updatedNotes);
+    });
+
+    return () => {
+      cleanupMenu();
+      cleanupNotes();
+    };
+  }, [flushPendingSave, handleAddNote]);
+
+  // Window-level keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(event) {
+      const isCmdOrCtrl = event.metaKey || event.ctrlKey;
+
+      if (isCmdOrCtrl && event.key === "n") {
+        event.preventDefault();
+        handleAddNote();
+      } else if (isCmdOrCtrl && event.key === "s") {
+        event.preventDefault();
+        flushPendingSave();
+      } else if (isCmdOrCtrl && event.key === "f") {
+        event.preventDefault();
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          searchInputRef.current.select();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [flushPendingSave, handleAddNote]);
 
   const activeNote = notes.find((note) => note.id === activeId);
 
@@ -59,37 +236,91 @@ export default function App() {
     )
     .sort((a, b) => b.updatedAt - a.updatedAt);
 
-  function addNote() {
-    const note = createNote();
-    setNotes((current) => [note, ...current]);
-    setActiveId(note.id);
-    setSearch("");
+  function handleSelectNote(id) {
+    if (id === activeId) return;
+    flushPendingSave();
+    setActiveId(id);
   }
 
-  function updateNote(field, value) {
+  function handleUpdateNote(field, value) {
+    if (!activeId) return;
+
+    const now = Date.now();
+    let updatedNoteObj = null;
+
     setNotes((current) =>
-      current.map((note) =>
-        note.id === activeId
-          ? {
-              ...note,
-              [field]: value,
-              updatedAt: Date.now(),
-            }
-          : note
-      )
+      current.map((note) => {
+        if (note.id === activeId) {
+          updatedNoteObj = {
+            ...note,
+            [field]: value,
+            updatedAt: now,
+          };
+          return updatedNoteObj;
+        }
+        return note;
+      })
     );
+
+    if (updatedNoteObj) {
+      pendingUpdateRef.current = updatedNoteObj;
+      setSaveStatus("saving");
+
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+
+      debounceTimerRef.current = setTimeout(() => {
+        flushPendingSave();
+      }, 400);
+    }
   }
 
-  function deleteNote(id) {
-    const remaining = notes.filter((note) => note.id !== id);
-    setNotes(remaining);
+  async function handleDeleteNote(id) {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    pendingUpdateRef.current = null;
 
-    if (activeId === id) {
-      setActiveId(
-        remaining.length
-          ? remaining.sort((a, b) => b.updatedAt - a.updatedAt)[0].id
-          : null
-      );
+    try {
+      if (window.quickNotesAPI) {
+        await window.quickNotesAPI.deleteNote(id);
+      }
+      const remaining = notes.filter((note) => note.id !== id);
+      setNotes(remaining);
+
+      if (!window.quickNotesAPI) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
+      }
+
+      if (activeId === id) {
+        setActiveId(
+          remaining.length
+            ? [...remaining].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
+            : null
+        );
+      }
+      setSaveStatus("saved");
+    } catch (err) {
+      console.error("Failed to delete note:", err);
+      setErrorMessage("Could not delete note from disk.");
+    }
+  }
+
+  async function toggleTheme() {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
+
+    try {
+      if (window.quickNotesAPI) {
+        await window.quickNotesAPI.setTheme(nextTheme);
+      } else {
+        localStorage.setItem("quick-notes-theme", nextTheme);
+      }
+    } catch (err) {
+      console.error("Failed to persist theme:", err);
     }
   }
 
@@ -102,9 +333,17 @@ export default function App() {
             <h1>Quick Notes</h1>
             <p>Your personal workspace</p>
           </div>
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+            aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+          >
+            {theme === "light" ? "☾" : "☼"}
+          </button>
         </div>
 
-        <button className="new-note-button" onClick={addNote}>
+        <button className="new-note-button" onClick={handleAddNote}>
           <span>＋</span> New note
           <span className="shortcut">⌘ N</span>
         </button>
@@ -117,8 +356,9 @@ export default function App() {
         <div className="search-box">
           <span>⌕</span>
           <input
+            ref={searchInputRef}
             type="text"
-            placeholder="Search your notes..."
+            placeholder="Search your notes... (⌘F)"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -134,51 +374,69 @@ export default function App() {
         </div>
 
         <div className="notes-list">
-          {filteredNotes.map((note) => (
-            <button
-              className={`note-card ${
-                activeId === note.id ? "selected" : ""
-              }`}
-              key={note.id}
-              onClick={() => setActiveId(note.id)}
-            >
-              <div className="note-card-heading">
-                <span className="note-dot" />
-                <span className="note-date">
-                  {formatDate(note.updatedAt)}
-                </span>
-              </div>
-
-              <div className="note-card-title">
-                {note.title.trim() || "Untitled note"}
-              </div>
-
-              <div className="note-card-preview">
-                {note.content.trim() || "No additional text"}
-              </div>
-            </button>
-          ))}
-
-          {filteredNotes.length === 0 && (
+          {loading ? (
             <div className="list-empty">
-              <span>{search ? "⌕" : "✳"}</span>
-              <p>{search ? "No matching notes" : "No notes yet"}</p>
-              <small>
-                {search
-                  ? "Try a different search."
-                  : "Create a note to get started."}
-              </small>
+              <span>⏳</span>
+              <p>Loading notes...</p>
             </div>
+          ) : (
+            <>
+              {filteredNotes.map((note) => (
+                <button
+                  className={`note-card ${
+                    activeId === note.id ? "selected" : ""
+                  }`}
+                  key={note.id}
+                  onClick={() => handleSelectNote(note.id)}
+                >
+                  <div className="note-card-heading">
+                    <span className="note-dot" />
+                    <span className="note-date">
+                      {formatDate(note.updatedAt)}
+                    </span>
+                  </div>
+
+                  <div className="note-card-title">
+                    {note.title.trim() || "Untitled note"}
+                  </div>
+
+                  <div className="note-card-preview">
+                    {note.content.trim() || "No additional text"}
+                  </div>
+                </button>
+              ))}
+
+              {filteredNotes.length === 0 && (
+                <div className="list-empty">
+                  <span>{search ? "⌕" : "✳"}</span>
+                  <p>{search ? "No matching notes" : "No notes yet"}</p>
+                  <small>
+                    {search
+                      ? "Try a different search."
+                      : "Create a note to get started."}
+                  </small>
+                </div>
+              )}
+            </>
           )}
         </div>
 
         <div className="sidebar-footer">
           <span className="status-dot" />
-          <span>Stored on this device</span>
+          <span>Stored securely on device</span>
         </div>
       </aside>
 
       <section className="editor">
+        {errorMessage && (
+          <div className="error-banner">
+            <span>⚠️ {errorMessage}</span>
+            <button onClick={() => setErrorMessage(null)} aria-label="Dismiss error">
+              ×
+            </button>
+          </div>
+        )}
+
         {activeNote ? (
           <>
             <header className="editor-toolbar">
@@ -188,13 +446,15 @@ export default function App() {
               </div>
 
               <div className="toolbar-actions">
-                <span className="save-status">
-                  <span className="status-dot" />
-                  Saved locally
+                <span className={`save-status status-${saveStatus}`}>
+                  <span className={`status-dot status-dot-${saveStatus}`} />
+                  {saveStatus === "saving" && "Saving..."}
+                  {saveStatus === "saved" && "Saved"}
+                  {saveStatus === "error" && "Save error"}
                 </span>
                 <button
                   className="delete-button"
-                  onClick={() => deleteNote(activeNote.id)}
+                  onClick={() => handleDeleteNote(activeNote.id)}
                   title="Delete note"
                   aria-label="Delete note"
                 >
@@ -216,7 +476,7 @@ export default function App() {
                 placeholder="Untitled"
                 value={activeNote.title}
                 onChange={(event) =>
-                  updateNote("title", event.target.value)
+                  handleUpdateNote("title", event.target.value)
                 }
                 aria-label="Note title"
               />
@@ -230,7 +490,7 @@ export default function App() {
                 placeholder={"Start writing here...\n\nYour ideas deserve a place to live."}
                 value={activeNote.content}
                 onChange={(event) =>
-                  updateNote("content", event.target.value)
+                  handleUpdateNote("content", event.target.value)
                 }
                 aria-label="Note content"
               />
@@ -252,7 +512,7 @@ export default function App() {
               Keep ideas, reminders, and everything worth remembering
               in one simple place.
             </p>
-            <button className="welcome-button" onClick={addNote}>
+            <button className="welcome-button" onClick={handleAddNote}>
               Create your first note
             </button>
             <div className="welcome-shortcut">
