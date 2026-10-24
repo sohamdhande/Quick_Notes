@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld("quickNotesAPI", {
   getTheme: () => ipcRenderer.invoke("settings:get-theme"),
   setTheme: (theme) => ipcRenderer.invoke("settings:set-theme", theme),
 
+  openNoteWindow: (noteId) => ipcRenderer.invoke("window:open-note", noteId),
+  exportNote: (noteId, format) => ipcRenderer.invoke("notes:export", { noteId, format }),
+  confirmDelete: (noteTitle) => ipcRenderer.invoke("dialog:confirm-delete", noteTitle),
+
   /**
    * Listen for native menu keyboard shortcuts dispatched from main process.
    * Callback receives action: 'new-note' | 'save-note' | 'focus-search'.

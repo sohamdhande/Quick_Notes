@@ -118,3 +118,15 @@ export function validateMigrationNotes(notes) {
 
   return validNotes;
 }
+
+export function validateExportFormat(format) {
+  if (typeof format !== "string") {
+    throw new Error("Export format must be a string");
+  }
+  const normalized = format.toLowerCase().trim().replace(/^\./, "");
+  if (normalized !== "md" && normalized !== "txt") {
+    throw new Error("Invalid export format: must be 'md' or 'txt'");
+  }
+  return normalized;
+}
+

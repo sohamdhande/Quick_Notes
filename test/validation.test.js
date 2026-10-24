@@ -6,6 +6,7 @@ import {
   validateUpdatePatch,
   validateTheme,
   validateMigrationNotes,
+  validateExportFormat,
 } from "../electron/validation.js";
 
 describe("Validation utilities", () => {
@@ -119,6 +120,20 @@ describe("Validation utilities", () => {
 
     it("rejects non-array input", () => {
       assert.throws(() => validateMigrationNotes({}), /must be an array/);
+    });
+  });
+
+  describe("validateExportFormat", () => {
+    it("accepts 'md' and 'txt'", () => {
+      assert.equal(validateExportFormat("md"), "md");
+      assert.equal(validateExportFormat("txt"), "txt");
+      assert.equal(validateExportFormat(".MD"), "md");
+      assert.equal(validateExportFormat(" .txt "), "txt");
+    });
+
+    it("rejects invalid formats", () => {
+      assert.throws(() => validateExportFormat("pdf"), /must be 'md' or 'txt'/);
+      assert.throws(() => validateExportFormat(123), /must be a string/);
     });
   });
 });

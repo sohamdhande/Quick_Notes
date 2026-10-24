@@ -34,13 +34,18 @@ function formatDate(timestamp) {
 }
 
 export default function App() {
+  const queryParams = new URLSearchParams(window.location.search);
+  const detachedNoteId = queryParams.get("noteId");
+  const isDetachedWindow = Boolean(detachedNoteId);
+
   const [notes, setNotes] = useState([]);
-  const [activeId, setActiveId] = useState(null);
+  const [activeId, setActiveId] = useState(detachedNoteId || null);
   const [search, setSearch] = useState("");
   const [theme, setTheme] = useState("light");
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState("saved"); // 'saved' | 'saving' | 'error'
   const [errorMessage, setErrorMessage] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
 
   const searchInputRef = useRef(null);
   const pendingUpdateRef = useRef(null);
@@ -55,6 +60,13 @@ export default function App() {
   useEffect(() => {
     activeIdRef.current = activeId;
   }, [activeId]);
+
+  const showToast = useCallback((msg) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3500);
+  }, []);
 
   // Persist pending note changes to main process
   const flushPendingSave = useCallback(async () => {
@@ -85,6 +97,15 @@ export default function App() {
       setErrorMessage("Could not save changes to disk. Please check file permissions.");
     }
   }, []);
+
+  // Flush on window close / unload to avoid losing recent edits
+  useEffect(() => {
+    function handleBeforeUnload() {
+      flushPendingSave();
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [flushPendingSave]);
 
   // Initial load, theme sync, and localStorage migration
   useEffect(() => {
@@ -130,7 +151,9 @@ export default function App() {
 
         if (isMounted) {
           setNotes(loadedNotes);
-          if (loadedNotes.length > 0) {
+          if (detachedNoteId) {
+            setActiveId(detachedNoteId);
+          } else if (loadedNotes.length > 0) {
             setActiveId(loadedNotes[0].id);
           }
           setLoading(false);
@@ -149,7 +172,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [detachedNoteId]);
 
   const handleAddNote = useCallback(async () => {
     await flushPendingSave();
@@ -175,7 +198,7 @@ export default function App() {
     }
   }, [flushPendingSave]);
 
-  // Listen for native menu shortcuts and external note updates
+  // Listen for native menu shortcuts and external cross-window note updates
   useEffect(() => {
     if (!window.quickNotesAPI) return;
 
@@ -207,13 +230,13 @@ export default function App() {
     function handleKeyDown(event) {
       const isCmdOrCtrl = event.metaKey || event.ctrlKey;
 
-      if (isCmdOrCtrl && event.key === "n") {
+      if (isCmdOrCtrl && event.key === "n" && !isDetachedWindow) {
         event.preventDefault();
         handleAddNote();
       } else if (isCmdOrCtrl && event.key === "s") {
         event.preventDefault();
         flushPendingSave();
-      } else if (isCmdOrCtrl && event.key === "f") {
+      } else if (isCmdOrCtrl && event.key === "f" && !isDetachedWindow) {
         event.preventDefault();
         if (searchInputRef.current) {
           searchInputRef.current.focus();
@@ -224,9 +247,18 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [flushPendingSave, handleAddNote]);
+  }, [flushPendingSave, handleAddNote, isDetachedWindow]);
 
   const activeNote = notes.find((note) => note.id === activeId);
+
+  // Update window title when active note changes
+  useEffect(() => {
+    if (activeNote && activeNote.title) {
+      document.title = `${activeNote.title.trim()} — Quick Notes`;
+    } else {
+      document.title = "Quick Notes";
+    }
+  }, [activeNote]);
 
   const filteredNotes = notes
     .filter((note) =>
@@ -277,6 +309,16 @@ export default function App() {
   }
 
   async function handleDeleteNote(id) {
+    if (!activeNote) return;
+
+    const confirmed = window.quickNotesAPI
+      ? await window.quickNotesAPI.confirmDelete(activeNote.title)
+      : window.confirm(
+          `Are you sure you want to delete "${activeNote.title || "Untitled"}"?`
+        );
+
+    if (!confirmed) return;
+
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -294,7 +336,9 @@ export default function App() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
       }
 
-      if (activeId === id) {
+      if (isDetachedWindow) {
+        window.close();
+      } else if (activeId === id) {
         setActiveId(
           remaining.length
             ? [...remaining].sort((a, b) => b.updatedAt - a.updatedAt)[0].id
@@ -302,9 +346,54 @@ export default function App() {
         );
       }
       setSaveStatus("saved");
+      showToast("Note deleted");
     } catch (err) {
       console.error("Failed to delete note:", err);
       setErrorMessage("Could not delete note from disk.");
+    }
+  }
+
+  async function handleOpenInNewWindow() {
+    if (!activeNote || !window.quickNotesAPI) return;
+    await flushPendingSave();
+    try {
+      await window.quickNotesAPI.openNoteWindow(activeNote.id);
+    } catch (err) {
+      console.error("Failed to open note window:", err);
+      setErrorMessage("Could not open note in separate window.");
+    }
+  }
+
+  async function handleExport(format) {
+    if (!activeNote) return;
+    await flushPendingSave();
+
+    if (window.quickNotesAPI) {
+      try {
+        const result = await window.quickNotesAPI.exportNote(activeNote.id, format);
+        if (result.canceled) {
+          // User canceled native save dialog; silently ignore
+          return;
+        }
+        if (result.success) {
+          showToast(`Exported to ${result.filePath.split("/").pop()}`);
+        } else if (result.error) {
+          setErrorMessage(`Export failed: ${result.error}`);
+        }
+      } catch (err) {
+        console.error("Export error:", err);
+        setErrorMessage("Could not export note.");
+      }
+    } else {
+      // Browser fallback
+      const blob = new Blob([activeNote.content || ""], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${activeNote.title || "Untitled"}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`Downloaded note as .${format}`);
     }
   }
 
@@ -325,107 +414,109 @@ export default function App() {
   }
 
   return (
-    <main className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-icon">N</div>
-          <div>
-            <h1>Quick Notes</h1>
-            <p>Your personal workspace</p>
-          </div>
-          <button
-            className="theme-toggle"
-            onClick={toggleTheme}
-            title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
-            aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
-          >
-            {theme === "light" ? "☾" : "☼"}
-          </button>
-        </div>
-
-        <button className="new-note-button" onClick={handleAddNote}>
-          <span>＋</span> New note
-          <span className="shortcut">⌘ N</span>
-        </button>
-
-        <div className="section-label">
-          <span>YOUR NOTES</span>
-          <span>{notes.length}</span>
-        </div>
-
-        <div className="search-box">
-          <span>⌕</span>
-          <input
-            ref={searchInputRef}
-            type="text"
-            placeholder="Search your notes... (⌘F)"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          {search && (
-            <button
-              className="clear-search"
-              onClick={() => setSearch("")}
-              aria-label="Clear search"
-            >
-              ×
-            </button>
-          )}
-        </div>
-
-        <div className="notes-list">
-          {loading ? (
-            <div className="list-empty">
-              <span>⏳</span>
-              <p>Loading notes...</p>
+    <main className={`app ${isDetachedWindow ? "detached-app" : ""}`}>
+      {!isDetachedWindow && (
+        <aside className="sidebar">
+          <div className="brand">
+            <div className="brand-icon">N</div>
+            <div>
+              <h1>Quick Notes</h1>
+              <p>Your personal workspace</p>
             </div>
-          ) : (
-            <>
-              {filteredNotes.map((note) => (
-                <button
-                  className={`note-card ${
-                    activeId === note.id ? "selected" : ""
-                  }`}
-                  key={note.id}
-                  onClick={() => handleSelectNote(note.id)}
-                >
-                  <div className="note-card-heading">
-                    <span className="note-dot" />
-                    <span className="note-date">
-                      {formatDate(note.updatedAt)}
-                    </span>
+            <button
+              className="theme-toggle"
+              onClick={toggleTheme}
+              title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+            >
+              {theme === "light" ? "☾" : "☼"}
+            </button>
+          </div>
+
+          <button className="new-note-button" onClick={handleAddNote}>
+            <span>＋</span> New note
+            <span className="shortcut">⌘ N</span>
+          </button>
+
+          <div className="section-label">
+            <span>YOUR NOTES</span>
+            <span>{notes.length}</span>
+          </div>
+
+          <div className="search-box">
+            <span>⌕</span>
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search your notes... (⌘F)"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            {search && (
+              <button
+                className="clear-search"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          <div className="notes-list">
+            {loading ? (
+              <div className="list-empty">
+                <span>⏳</span>
+                <p>Loading notes...</p>
+              </div>
+            ) : (
+              <>
+                {filteredNotes.map((note) => (
+                  <button
+                    className={`note-card ${
+                      activeId === note.id ? "selected" : ""
+                    }`}
+                    key={note.id}
+                    onClick={() => handleSelectNote(note.id)}
+                  >
+                    <div className="note-card-heading">
+                      <span className="note-dot" />
+                      <span className="note-date">
+                        {formatDate(note.updatedAt)}
+                      </span>
+                    </div>
+
+                    <div className="note-card-title">
+                      {note.title.trim() || "Untitled note"}
+                    </div>
+
+                    <div className="note-card-preview">
+                      {note.content.trim() || "No additional text"}
+                    </div>
+                  </button>
+                ))}
+
+                {filteredNotes.length === 0 && (
+                  <div className="list-empty">
+                    <span>{search ? "⌕" : "✳"}</span>
+                    <p>{search ? "No matching notes" : "No notes yet"}</p>
+                    <small>
+                      {search
+                        ? "Try a different search."
+                        : "Create a note to get started."}
+                    </small>
                   </div>
+                )}
+              </>
+            )}
+          </div>
 
-                  <div className="note-card-title">
-                    {note.title.trim() || "Untitled note"}
-                  </div>
-
-                  <div className="note-card-preview">
-                    {note.content.trim() || "No additional text"}
-                  </div>
-                </button>
-              ))}
-
-              {filteredNotes.length === 0 && (
-                <div className="list-empty">
-                  <span>{search ? "⌕" : "✳"}</span>
-                  <p>{search ? "No matching notes" : "No notes yet"}</p>
-                  <small>
-                    {search
-                      ? "Try a different search."
-                      : "Create a note to get started."}
-                  </small>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="sidebar-footer">
-          <span className="status-dot" />
-          <span>Stored securely on device</span>
-        </div>
-      </aside>
+          <div className="sidebar-footer">
+            <span className="status-dot" />
+            <span>Stored securely on device</span>
+          </div>
+        </aside>
+      )}
 
       <section className="editor">
         {errorMessage && (
@@ -437,11 +528,17 @@ export default function App() {
           </div>
         )}
 
+        {toastMessage && (
+          <div className="toast">
+            <span>✓ {toastMessage}</span>
+          </div>
+        )}
+
         {activeNote ? (
           <>
             <header className="editor-toolbar">
               <div className="breadcrumb">
-                My Notes <span>/</span>{" "}
+                {isDetachedWindow ? "Detached Note" : "My Notes"} <span>/</span>{" "}
                 {activeNote.title.trim() || "Untitled"}
               </div>
 
@@ -452,6 +549,48 @@ export default function App() {
                   {saveStatus === "saved" && "Saved"}
                   {saveStatus === "error" && "Save error"}
                 </span>
+
+                <div className="export-group">
+                  <button
+                    className="action-button"
+                    onClick={() => handleExport("md")}
+                    title="Export note as Markdown (.md)"
+                    aria-label="Export note as Markdown"
+                  >
+                    Export .md
+                  </button>
+                  <button
+                    className="action-button"
+                    onClick={() => handleExport("txt")}
+                    title="Export note as Plain Text (.txt)"
+                    aria-label="Export note as Plain Text"
+                  >
+                    .txt
+                  </button>
+                </div>
+
+                {!isDetachedWindow && (
+                  <button
+                    className="action-button popout-button"
+                    onClick={handleOpenInNewWindow}
+                    title="Open note in separate window"
+                    aria-label="Open note in separate window"
+                  >
+                    <span>⧉</span> Pop out
+                  </button>
+                )}
+
+                {isDetachedWindow && (
+                  <button
+                    className="theme-toggle"
+                    onClick={toggleTheme}
+                    title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+                    aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+                  >
+                    {theme === "light" ? "☾" : "☼"}
+                  </button>
+                )}
+
                 <button
                   className="delete-button"
                   onClick={() => handleDeleteNote(activeNote.id)}
@@ -507,14 +646,19 @@ export default function App() {
           <div className="welcome">
             <div className="welcome-icon">N</div>
             <p className="eyebrow">YOUR PERSONAL WORKSPACE</p>
-            <h2>A little space<br />for your thoughts.</h2>
+            <h2>
+              {isDetachedWindow ? "Note not found" : "A little space\nfor your thoughts."}
+            </h2>
             <p className="welcome-description">
-              Keep ideas, reminders, and everything worth remembering
-              in one simple place.
+              {isDetachedWindow
+                ? "This note may have been deleted in another window."
+                : "Keep ideas, reminders, and everything worth remembering in one simple place."}
             </p>
-            <button className="welcome-button" onClick={handleAddNote}>
-              Create your first note
-            </button>
+            {!isDetachedWindow && (
+              <button className="welcome-button" onClick={handleAddNote}>
+                Create your first note
+              </button>
+            )}
             <div className="welcome-shortcut">
               Simple by design. Always yours.
             </div>

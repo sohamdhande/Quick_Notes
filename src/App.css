@@ -462,7 +462,82 @@ button {
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 12px;
+}
+
+.action-button {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-app);
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  transition: all 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.action-button:hover {
+  background: var(--card-hover);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.export-group {
+  display: inline-flex;
+  align-items: center;
+}
+
+.export-group .action-button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+}
+
+.export-group .action-button:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.popout-button span {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 10px 18px;
+  background: var(--accent-button);
+  color: var(--accent-button-text);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  animation: slide-up 200ms ease-out;
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.detached-app .editor-toolbar {
+  padding: 0 20px;
+}
+
+.detached-app .editor-content {
+  padding: 30px 40px 20px;
 }
 
 .save-status {

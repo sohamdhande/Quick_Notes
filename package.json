@@ -11,13 +11,18 @@
     "test": "node --test test/**/*.test.js",
     "preview": "vite preview",
     "electron": "electron .",
-    "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\""
+    "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "package": "npm run build && electron-forge package",
+    "make": "npm run build && electron-forge make",
+    "dist": "npm run make && node scripts/make-dmg.js"
   },
   "dependencies": {
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^8.0.1",
+    "@electron-forge/maker-zip": "^8.0.1",
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
