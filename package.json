@@ -14,7 +14,8 @@
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
     "package": "npm run build && electron-forge package",
     "make": "npm run build && electron-forge make",
-    "dist": "npm run make && node scripts/make-dmg.js"
+    "dist": "npm run make && node scripts/make-dmg.js",
+    "dist:dmg": "node scripts/make-dmg.js"
   },
   "dependencies": {
     "react": "^19.3.1",
